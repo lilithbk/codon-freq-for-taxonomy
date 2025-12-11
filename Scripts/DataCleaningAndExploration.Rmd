@@ -1,0 +1,203 @@
+---
+title: "Data Cleaning and Exploration"
+output: html_document
+---
+
+## Cleaning Codon Data
+
+```{r, clean-data}
+library(tidyverse)
+# Loading data raises warning due to parsing issue
+df <- read_csv("../codon+usage/codon_usage.csv")
+# Get original dimensions of data
+dim(df) # 13028 69
+# Removing rows with parsing errors
+df <- df[-c(487, 5064), ]
+# Removing unnecessary columns
+df <- df %>%
+  # Removing unnecessary columns
+  select(-c(SpeciesID, SpeciesName, DNAtype, Ncodons)) %>%
+  # Removing duplicated rows
+  distinct()
+# Creating new CSV with cleaned data
+write_csv(df, "Data/cleaned_codons.csv")
+dim(df)
+```
+
+## Exploratory Plots
+
+### Mean Codon Frequencies
+
+Making plot to visualize distribution of codon frequencies when averaged over all domains of life.
+
+```{r, mean-codon-freq}
+# Get mean frequency of each codon
+avg.freq <- sapply(df[, 2:65], mean)
+# Create data frame for plotting
+codon.freq <- data.frame(Frequency = unname(avg.freq), Codon = names(avg.freq))
+# Create bar chart
+ggplot(codon.freq, aes(Codon, Frequency)) +
+  geom_col() +
+  theme_minimal() +
+  # Add and adjust codon labels to make them legible
+  geom_text(aes(label = Codon), angle = 90, size = 3, hjust = -0.1, vjust = 0.4) +
+  ylim(c(0, 0.03)) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+# Save plot
+ggsave("Plots/MeanCodonFreq.png")
+```
+
+Further inspecting codon frequencies from previous plot.
+
+```{r, scatterplot-matrices}
+# Scatterplot matrix of stop codons
+png("Plots/stop_codon_scatterplots.png")
+pairs(df[, c("UAG", "UAA", "UGA")])
+dev.off()
+
+# Scatterplot matrix of highest frequency codons
+png("Plots/high_freq_scatterplots.png")
+pairs(df[, c("AAA", "AUU", "GAA")])
+dev.off()
+```
+
+### Distribution of Taxa
+
+Making plot to visualize the amount of observations in each class.
+
+```{r}
+ggplot(df, aes(reorder(Kingdom, Kingdom, function(x) + length(x)))) +
+  geom_bar() +
+  xlab("Category") +
+  ylab("Count") +
+  theme_bw()
+ggsave("Plots/TaxaBarChart.png")
+```
+
+#### Removing Plasmids
+
+The plot above makes it clear that there are very few plasmid (`plm`) observations.
+
+```{r}
+print(count(df, Kingdom) %>% arrange(n))
+```
+
+With only 18 observations (less than 0.14% of overall observations), plasmids cannot safely be included in further analysis. There are not enough plasmid observations for oversampling techniques typically used in cases of imbalanced data because it would introduce significant amounts of noise.
+
+```{r, removing-plasmids}
+# Filtering out plasmids
+df <- df %>% 
+  filter(Kingdom != "plm")
+```
+
+## PCA
+
+### Ten Remaining Classes
+
+```{r, pca-10-classes}
+# Need to scale data prior to PCA
+codons_scaled <- scale(df[, 2:65])
+# Get principal components
+pca <- prcomp(codons_scaled)
+# Create screeplot to identify components likely to be informative
+screeplot(pca)
+pca.10 <- data.frame(Kingdom = df$Kingdom, pca$x[, 1:6])
+```
+
+```{r, pca-10-plots}
+ggplot(pca.10, aes(PC1, PC2, color = Kingdom)) +
+  geom_point(alpha = 0.7) +
+  theme_bw()
+# Save plot of PC1 vs. PC2
+ggsave("Plots/PCA10Classes.png")
+
+# Consolidate non-mutually exclusive classes and re-plot
+true_kingdom <- pca.10$Kingdom %>%
+  recode("phg" = "vrl", "mam" = "vrt", "pri" = "vrt", "rod" = "vrt")
+ggplot(pca.10, aes(PC1, PC2, color = true_kingdom)) +
+  geom_point(alpha = 0.7) +
+  theme_bw()
+ggsave("Plots/PCA6Classes.png")
+```
+
+There still seems to be poor separation, so will further inspect the non-mutually exclusive classes.
+
+### Vertebrates and its Sub-Classes
+
+```{r, pca-vrt}
+# Get subset with only vertebrates
+all_vrt <- df %>%
+  filter(Kingdom %in% c("mam", "rod", "vrt", "pri"))
+# Need to scale data prior to PCA
+codons_vrt <- scale(all_vrt[, 2:65])
+# Get principal components
+pca_vrt <- prcomp(codons_vrt)
+# Create screeplot and select PCs most likely to be informative
+screeplot(pca_vrt)
+pca.vrt <- data.frame(Kingdom = all_vrt$Kingdom, pca_vrt$x[, 1:5])
+# Plot first two PC's
+ggplot(pca.vrt, aes(PC1, PC2, color = Kingdom)) +
+  geom_point(alpha = 0.7) +
+  theme_bw()
+# Save plot of PC1 vs. PC2
+ggsave("Plots/PCAVrt.png")
+```
+
+#### Combining Mammals, Primates, and Rodents with Vertebrates
+
+The PCA with only vertebrates and its subclasses affirms the prior observation that the variance among vertebrates cannot be explained by the subclasses available in this data. Because of the large overlap between these four classes, it makes the most sense to combine them into a singular class with all vertebrates.
+
+```{r, combine-vrt}
+df <- df %>%
+  mutate(Kingdom = case_when(
+    # Combine mammals, primates, and rodents with other vertebrates
+    Kingdom %in% c("pri", "rod", "mam") ~ "vrt",
+    .default = Kingdom))
+```
+
+
+### Viruses, Bacteriophages, and Bacteria
+
+```{r, pca-vrl-bct}
+# Get subset with only viruses
+all_vrl_bct <- df %>%
+  filter(Kingdom %in% c("vrl", "phg", "bct"))
+# Need to scale data prior to PCA
+codons_vrl_bct <- scale(all_vrl_bct[, 2:65])
+# Get principal components
+pca_vrl_bct <- prcomp(codons_vrl_bct)
+# Create screeplot and select PCs most likely to be informative
+screeplot(pca_vrl_bct)
+pca.vrl.bct <- data.frame(Kingdom = all_vrl_bct$Kingdom, pca_vrl_bct$x[, 1:5])
+# Plot first two PC's
+ggplot(pca.vrl.bct, aes(PC1, PC2, color = Kingdom)) +
+  geom_point(alpha = 0.7) +
+  theme_bw()
+# Save plot of PC1 vs. PC2
+ggsave("Plots/PCAVrlBct.png")
+```
+
+#### Removing Bacteriophages
+
+PC2 shows separation of general viruses and bacteria, but bacteriophages are mostly clustered with bacteria. Because of this, and the fact that bacteriophages is one of the smallest classes, those observations will be removed to avoid issues with the inherent sharing of DNA between bacteria and bacteriophages.
+
+```{r}
+df <- df %>%
+  mutate(Kingdom = case_when(
+    # Combine bacteriophages with other viruses
+    Kingdom == "phg" ~ "vrl",
+    .default = Kingdom))
+```
+
+## Final Data Preprocessing
+
+```{r, save-data}
+# Now, there are only 6 classes
+df %>% count(Kingdom) %>% arrange(n)
+
+# Creating new CSV with consolidated Kingdom
+write_csv(df, "Data/consolidated_codons.csv")
+```
+
+As can be seen above, the data is still quite imbalanced, particularly with archaea, so steps will be taken in further analysis to mitigate the risks.
