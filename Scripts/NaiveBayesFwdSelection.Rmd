@@ -3,196 +3,93 @@ title: "Naive Bayes Forward Subset Selection"
 output: html_document
 ---
 
-## Functions for Naive Bayes Forward Selection
+## Load Data and Necessary Libraries
 
-```{r, NB-functions}
-# The code in this chunk was generated with ChatGPT.
-
-# Required packages
-if (!requireNamespace("e1071", quietly = TRUE)) install.packages("e1071")
+```{r, load-libs}
+# For naive Bayes function
 library(e1071)
-
-# ---------- utility: stratified fold assignment ----------
-make_stratified_folds <- function(y, k = 10, seed = NULL) {
-  # y: factor response
-  if (!is.null(seed)) set.seed(seed)
-  y <- as.factor(y)
-  folds <- integer(length(y))
-  classes <- levels(y)
-  fold_ids <- seq_len(k)
-  for (cls in classes) {
-    idx <- which(y == cls)
-    # shuffle indices, split nearly equally into k groups
-    idx <- sample(idx)
-    # assign in round-robin to reduce imbalance per fold
-    assigned <- rep(fold_ids, length.out = length(idx))
-    folds[idx] <- assigned
-  }
-  folds
-}
-
-# ---------- utility: metrics ----------
-macro_f1 <- function(true_vec, pred_vec) {
-  true_vec <- as.factor(true_vec)
-  pred_vec <- factor(pred_vec, levels = levels(true_vec))
-  classes <- levels(true_vec)
-  f1s <- numeric(length(classes))
-  for (i in seq_along(classes)) {
-    cls <- classes[i]
-    tp <- sum(pred_vec == cls & true_vec == cls)
-    fp <- sum(pred_vec == cls & true_vec != cls)
-    fn <- sum(pred_vec != cls & true_vec == cls)
-    prec <- if ((tp + fp) == 0) 0 else tp / (tp + fp)
-    rec  <- if ((tp + fn) == 0) 0 else tp / (tp + fn)
-    f1s[i] <- if ((prec + rec) == 0) 0 else 2 * prec * rec / (prec + rec)
-  }
-  mean(f1s)
-}
-
-balanced_accuracy <- function(true_vec, pred_vec) {
-  true_vec <- as.factor(true_vec)
-  pred_vec <- factor(pred_vec, levels = levels(true_vec))
-  classes <- levels(true_vec)
-  recalls <- numeric(length(classes))
-  for (i in seq_along(classes)) {
-    cls <- classes[i]
-    tp <- sum(pred_vec == cls & true_vec == cls)
-    fn <- sum(pred_vec != cls & true_vec == cls)
-    recalls[i] <- if ((tp + fn) == 0) 0 else tp / (tp + fn)
-  }
-  mean(recalls)
-}
-
-macro_recall <- function(true_vec, pred_vec) {
-  # same as balanced_accuracy here (mean per-class recall)
-  balanced_accuracy(true_vec, pred_vec)
-}
-
-# ---------- CV function that returns chosen metric ----------
-nb_cv_metric <- function(data, features, response, k = 10, metric = "macroF1",
-                         stratified = TRUE, seed = 123) {
-  stopifnot(response %in% names(data))
-  y <- data[[response]]
-  if (stratified) {
-    folds <- make_stratified_folds(y, k = k, seed = seed)
-  } else {
-    set.seed(seed); folds <- sample(rep(1:k, length.out = nrow(data)))
-  }
-
-  scores <- numeric(k)
-  for (i in 1:k) {
-    test_idx  <- which(folds == i)
-    train_idx <- setdiff(seq_len(nrow(data)), test_idx)
-
-    train <- data[train_idx, c(features, response), drop = FALSE]
-    test  <- data[test_idx,  c(features, response), drop = FALSE]
-
-    # If feature set is empty, predict majority class
-    if (length(features) == 0) {
-      maj <- names(sort(table(train[[response]]), decreasing = TRUE))[1]
-      pred <- factor(rep(maj, nrow(test)), levels = levels(as.factor(data[[response]])))
-    } else {
-      # Fit Naive Bayes
-      nb_mod <- naiveBayes(as.formula(paste(response, "~ .")), data = train)
-
-      # Predict
-      pred <- predict(nb_mod, newdata = test)
-    }
-
-    # compute chosen metric
-    if (metric == "macroF1") {
-      scores[i] <- macro_f1(test[[response]], pred)
-    } else if (metric == "balancedAccuracy") {
-      scores[i] <- balanced_accuracy(test[[response]], pred)
-    } else if (metric == "macroRecall") {
-      scores[i] <- macro_recall(test[[response]], pred)
-    } else {
-      stop("Unsupported metric")
-    }
-  }
-
-  mean(scores)
-}
-
-# ---------- Forward selection that uses the above CV metric ----------
-nb_forward_selection_balanced <- function(data, response,
-                                          k = 10, metric = "macroF1",
-                                          stratified = TRUE, seed = 123,
-                                          verbose = TRUE, max_features = NULL) {
-  all_features <- setdiff(names(data), response)
-  selected <- character(0)
-  remaining <- all_features
-
-  # Baseline metric with no features (majority class predictor)
-  best_score <- nb_cv_metric(data, features = selected, response = response,
-                             k = k, metric = metric, stratified = stratified, seed = seed)
-  if (verbose) cat("Baseline (no features) ", metric, "=", round(best_score, 4), "\n")
-
-  iter <- 0
-  repeat {
-    iter <- iter + 1
-    results <- data.frame(feature = remaining, score = NA_real_, stringsAsFactors = FALSE)
-
-    for (f in remaining) {
-      s <- nb_cv_metric(data, features = c(selected, f), response = response,
-                        k = k, metric = metric, stratified = stratified, seed = seed + iter)
-      results$score[results$feature == f] <- s
-      if (verbose) cat("Tried +", f, "->", metric, "=", round(s, 4), "\n")
-    }
-
-    best_idx <- which.max(results$score)
-    if (length(best_idx) == 0) break
-    best_new <- results$feature[best_idx]
-    best_new_score <- results$score[best_idx]
-
-    # require strict improvement
-    if (best_new_score > best_score) {
-      selected <- c(selected, best_new)
-      remaining <- setdiff(remaining, best_new)
-      best_score <- best_new_score
-      if (verbose) cat("Selected:", best_new, "New", metric, "=", round(best_score, 4), "\n\n")
-    } else {
-      if (verbose) cat("No improvement found; stopping.\n")
-      break
-    }
-
-    # optional stop if we hit user-specified max number of features
-    if (!is.null(max_features) && length(selected) >= max_features) {
-      if (verbose) cat("Reached max_features:", max_features, "; stopping.\n")
-      break
-    }
-
-    # stop if no remaining
-    if (length(remaining) == 0) break
-  }
-
-  list(selected_features = selected, best_score = best_score, metric = metric)
-}
-
-# ---------- Example usage ----------
-# df is your dataframe, response column name is "Class"
-# result <- nb_forward_selection_balanced(df, response = "Class", k = 10,
-#                                         metric = "macroF1", stratified = TRUE, verbose = TRUE)
-# result$selected_features
-# result$best_score
 ```
-
-## Load Data
 
 ```{r, load-data}
-df <- read.csv("Data/consolidated_codons.csv")
-df$Kingdom <- as.factor(df$Kingdom)
-# Split into training and testing sets
-set.seed(27)
-testid <- sample(1:nrow(df), nrow(df) * 0.3)
-df.test <- df[testid, ]
-df.train <- df[-testid, ]
+# Load validation and training sets
+df.val <- read.csv("Data/set_splits/val_codons.csv")
+df.train <- read.csv("Data/set_splits/train_codons.csv")
+# Encode Kingdom as a factor
+df.val$Kingdom <- as.factor(df.val$Kingdom)
+df.train$Kingdom <- as.factor(df.train$Kingdom)
 ```
 
-## Fitting Naive Bayes Model with Macro F1 Score
+## Naive Bayes Forward Subset Selection Functions
 
-```{r, fitting-NB}
-nb_fit <- nb_forward_selection_balanced(df.train, "Kingdom", seed = 27)
-# Save results for future analysis
-saveRDS(nb_fit, "Fits/NaiveBayesConsolidatedData.rds")
+Although cross-validation would give better performance estimates, it becomes quite computationally expensive when doing multinomial classification using 64 predictors. In a forward subset selection framework using the typical 10-fold cross-validation approach, identifying the first predictor would require the creation of 6,400 different models. This becomes prohibitively computationally expensive on a local machine, so a single validation set will be used. Because there are a comparatively large amount of observations, the validation set has over 2,500 observations and the training set over 7,750, so there is not the same need for cross-validation as there would be with a smaller data set.
+
+```{r, nb-funcs}
+# Function to calculate macro F1 score for each model iteration
+macro_f1 <- function(true, pred){
+  classes <- levels(true)
+  f1 <- numeric(length(classes))
+  for (i in 1:length(classes)){
+    class <- classes[i]
+    TP <- sum(true == class & pred == class)
+    FP <- sum(true != class & pred == class)
+    FN <- sum(true == class & pred != class)
+    # Make sure to not divide by 0
+    precision <- ifelse(TP+FP == 0, 0, TP/(TP+FP))
+    recall <- ifelse(TP+FN == 0, 0, TP/(TP+FN))
+    f1[i] <- ifelse(precision+recall == 0, 0, 2 * precision * recall / (precision + recall))
+  }
+  return(mean(f1))
+}
+
+# Function to do naive Bayes forward subset selection
+nb_fwd_selection <- function(train_data, val_data, response, verbose = TRUE){
+  # Set up variables to keep track of features
+  all_feat <- setdiff(names(train_data), response)
+  sel <- character(0)
+  rest <- all_feat
+  best_score <- 0
+  repeat{
+    results <- data.frame(feature = rest, f1_score = 0)
+    for (feat in rest){
+      # Data frame with response, features already selected, and feature being tested
+      training_df <- train_data[, c(response, sel, feat)]
+      # Fit model then predict using validation data
+      fit <- naiveBayes(as.formula(paste(response, "~ .")), training_df)
+      pred <- predict(fit, val_data)
+      # Calculate and save macro f1 score
+      f1 <- macro_f1(val_data[[response]], pred)
+      results$f1_score[results$feature == feat] <- f1
+    }
+    
+    # Find feature that improves performance most
+    best_i <- which.max(results$f1_score)
+    best_feat <- results$feature[best_i]
+    best_score_new <- results$f1_score[best_i]
+    
+    # Determine if new score is an improvement
+    if (best_score_new > best_score){
+      sel <- c(sel, best_feat)
+      rest <- setdiff(rest, best_feat)
+      best_score <- best_score_new
+      if (verbose) cat("Selected feature:", best_feat, "New macro F1 score =", round(best_score, 4), "\n")
+    } else {
+      if (verbose) cat("No improvement found.")
+      break
+    }
+  }
+  return(list(selected_features = sel, macro_f1 = best_score))
+}
+```
+
+## Fitting Naive Bayes Model
+
+```{r, nb-var-sel}
+# Variable selection
+nb_features <- nb_fwd_selection(df.train, df.val, "Kingdom")
+
+# Fit and save best model
+## Use training and validation sets for final model to improve performance on test set
+df <- rbind(df.train, df.val)
+nb_fit <- naiveBayes(as.formula(paste("Kingdom ~", paste(nb_features$selected_features, collapse = "+"))), df)
+saveRDS(nb_fit, "Fits/NaiveBayes.rds")
 ```

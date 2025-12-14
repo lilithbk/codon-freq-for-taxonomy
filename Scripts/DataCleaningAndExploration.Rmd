@@ -8,7 +8,7 @@ output: html_document
 ```{r, clean-data}
 library(tidyverse)
 # Loading data raises warning due to parsing issue
-df <- read_csv("../codon+usage/codon_usage.csv")
+df <- read_csv("../codon+usage/codon_usage.csv", show_col_types = FALSE)
 # Get original dimensions of data
 dim(df) # 13028 69
 # Removing rows with parsing errors
@@ -201,3 +201,31 @@ write_csv(df, "Data/consolidated_codons.csv")
 ```
 
 As can be seen above, the data is still quite imbalanced, particularly with archaea, so steps will be taken in further analysis to mitigate the risks.
+
+## Splitting Data into Training, Validation, and Testing Sets
+
+Need a validation set to train neural networks without biasing results on the test set, so will use the same sets of data to train, validate, and test all models. Will use a 60/20/20 train/validation/test split.
+
+```{r, split-data}
+# For reproducibility
+set.seed(27)
+
+# First, set aside test set
+test_id <- sample(1:nrow(df), nrow(df) * 0.2)
+df.test <- df[test_id, ]
+# Update df to avoid overlap between the three sets
+df <- df[-test_id, ]
+
+# Set aside validation set
+## 20% less data in df now, so need 25% of what is remaining to be 20% of the overall observations
+val_id <- sample(1:nrow(df), nrow(df) * 0.25)
+df.val <- df[val_id, ]
+## Remaining observations are for training
+df.train <- df[-val_id, ]
+
+# Save each data frame in its own CSV
+write_csv(df.test, "Data/set_splits/test_codons.csv")
+write_csv(df.val, "Data/set_splits/val_codons.csv")
+write_csv(df.train, "Data/set_splits/train_codons.csv")
+```
+

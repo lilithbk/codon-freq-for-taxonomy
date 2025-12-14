@@ -3,70 +3,84 @@ title: "Fitting Random Forest"
 output: html_document
 ---
 
-## Load Data
+## Load Data and Necessary Libraries
+
+```{r, load-libs}
+# For random forest function
+library(randomForest)
+```
 
 ```{r, load-data}
-df <- read.csv("Data/consolidated_codons.csv")
-df$Kingdom <- as.factor(df$Kingdom)
-# Split into training and testing sets
-set.seed(27)
-testid <- sample(1:nrow(df), nrow(df) * 0.3)
-df.test <- df[testid, ]
-df.train <- df[-testid, ]
+# Load validation and training sets
+df.val <- read.csv("Data/set_splits/val_codons.csv")
+df.train <- read.csv("Data/set_splits/train_codons.csv")
+# Encode Kingdom as a factor
+df.val$Kingdom <- as.factor(df.val$Kingdom)
+df.train$Kingdom <- as.factor(df.train$Kingdom)
 ```
 
 ## Tune Random Forest Hyperparameters
 
 ```{r, define-RF-func}
-library(randomForest)
-library(caret)
+# Function to calculate macro F1 score for each model iteration
+macro_f1 <- function(true, pred){
+  classes <- levels(true)
+  f1 <- numeric(length(classes))
+  for (i in 1:length(classes)){
+    class <- classes[i]
+    TP <- sum(true == class & pred == class)
+    FP <- sum(true != class & pred == class)
+    FN <- sum(true == class & pred != class)
+    # Make sure to not divide by 0
+    precision <- ifelse(TP+FP == 0, 0, TP/(TP+FP))
+    recall <- ifelse(TP+FN == 0, 0, TP/(TP+FN))
+    f1[i] <- ifelse(precision+recall == 0, 0, 2 * precision * recall / (precision + recall))
+  }
+  return(mean(f1))
+}
 
-tune_rf_codons <- function(mtry = 8, ntree = 500){
-  # Initialize matrix to store macro F1 scores and mean balanced accuracy
-  rf_f1 <- matrix(nrow = length(mtry), ncol = length(ntree))
-  rf_bal_acc <- matrix(nrow = length(mtry), ncol = length(ntree))
+# Function to tune mtry and ntree for random forest
+rf_tune_hyperparams <- function(train_data, val_data, response, mtry, ntree, verbose = TRUE, seed = 27){
+  # Set seed to ensure reproducible results
+  set.seed(seed)
+  
+  # Initialize matrix to store macro F1 scores
+  results <- matrix(nrow = length(mtry), ncol = length(ntree))
   
   # Iterate through all mtry and ntree values
   for (i in 1:length(mtry)){
     for (j in 1:length(ntree)){
-      # Fit random forest model
-      rf_fit <- randomForest(Kingdom ~ ., data = df.train, mtry = mtry[i], ntree = ntree[j])
-      # Make predictions on test data
-      rf_pred <- predict(rf_fit, newdata = df.test)
-      # caret's confusionMatrix function automatically calculates F1 scores
-      cm <- confusionMatrix(rf_pred, df.test$Kingdom)
-      # Calculate macro F1 score from per-class F1 scores
-      rf_f1[i, j] <- mean(cm$byClass[, "F1"])
-      # Calculate mean balanced accuracy
-      rf_bal_acc[i, j] <- mean(cm$byClass[, "Balanced Accuracy"])
+      fit <- randomForest(as.formula(paste(response, "~ .")), train_data, mtry = mtry[i], ntree = ntree[j])
+      pred <- predict(fit, val_data)
+      results[i, j] <- macro_f1(val_data[[response]], pred)
+      if (verbose) cat("mtry = ", mtry[i], "and ntree = ", ntree[j], "resulted in macro F1 score of ", results[i, j], "\n")
     }
   }
-  rownames(rf_f1) <- mtry
-  rownames(rf_bal_acc) <- mtry
-  colnames(rf_f1) <- ntree  
-  colnames(rf_bal_acc) <- ntree  
-  return(list(rf_f1, rf_bal_acc))
+  # Extract best values for ntree and mtry
+  best_score <- max(results)
+  best_i <- which(results == best_score, arr.ind = TRUE)
+  best_mtry <- mtry[best_i[, 1]]
+  best_ntree <- ntree[best_i[, 2]]
+  rownames(results) <- mtry
+  colnames(results) <- ntree  
+  list(best_mtry = best_mtry, best_ntree = best_ntree, best_macro_f1 = best_score, matrix = results)
 }
 ```
 
-```{r, RF-tuning}
-# Tune number of variables at each split and number of trees
-rf_tuned <- tune_rf_codons(mtry = seq(6, 10), ntree = seq(250, 1000, 250))
-which.max(rf_tuned[[1]])
-which.max(rf_tuned[[2]])
-rf_tuned
-# Save list of matrices to avoid re-doing computationally expensive tuning
-saveRDS(rf_tuned, "Fits/RFHyperparams.rds")
+```{r, tune-RF}
+rf_tuning <- rf_tune_hyperparams(df.train, df.val, "Kingdom", seq(6, 12), seq(250, 1000, 250))
+rf_tuning
 ```
-
 
 ## Fit Final Random Forest Model
 
-Based on both macro F1 score and mean balanced accuracy, the highest performing combination of hyperparameters was `mtry = 10` and `ntrees = 750`. 
-
-```{r, final-RF}
+```{r, fit-RF}
+# Set seed for reproducibility
 set.seed(27)
-rf_fit <- randomForest(Kingdom ~ ., df.train, ntree = 750, mtry = 10, importance = TRUE, strata = df.train$Kingdom)
-saveRDS(rf_fit, "Fits/RandomForestFinalModel.rds")
+# Combine training and validation sets for final model
+df <- rbind(df.train, df.val)
+# Use mtry and ntree with best macro F1 score
+rf_fit <- randomForest(Kingdom ~ ., df, mtry = 12, ntree = 12, importance = TRUE)
+# Save for later evaluation
+saveRDS(rf_fit, "Fits/RandomForest.rds")
 ```
-

@@ -3,41 +3,31 @@ title: "Fitting Neural Networks"
 output: html_document
 ---
 
-## Load Data
+## Load Data and Necessary Libraries
+
+```{r, load-libs}
+# For neural networks
+library(keras)
+reticulate::use_condaenv(condaenv = "r-tensorflow")
+```
 
 ```{r, load-data}
-df <- read.csv("Data/consolidated_codons.csv")
-df$Kingdom <- as.factor(df$Kingdom)
-# Split into training and testing sets
-set.seed(27)
-testid <- sample(1:nrow(df), nrow(df) * 0.3)
-df.test <- df[testid, ]
-df.train <- df[-testid, ]
+# Load validation and training sets
+df.val <- read.csv("Data/set_splits/val_codons.csv")
+df.train <- read.csv("Data/set_splits/train_codons.csv")
+# Encode Kingdom as a factor
+df.val$Kingdom <- as.factor(df.val$Kingdom)
+df.train$Kingdom <- as.factor(df.train$Kingdom)
 ```
 
 ## Prepare Data for Fitting
 
 ```{r, prep-data}
-# Load keras
-library(keras)
-reticulate::use_condaenv(condaenv = "r-tensorflow")
-
 # Set up data
 x.train <- model.matrix(Kingdom ~ . -1, df.train) %>% scale()
-x.test <- model.matrix(Kingdom ~ . -1, df.test) %>% scale()
 y.train <- to_categorical(as.integer(df.train$Kingdom) - 1, 6)
-y.test <- to_categorical(as.integer(df.test$Kingdom) - 1, 6)
-
-# Define function to reverse categorical encoding if desired
-int_to_char <- function(out){
-  out[out == 0] <- "arc"
-  out[out == 1] <- "bct"
-  out[out == 2] <- "inv"
-  out[out == 3] <- "pln"
-  out[out == 4] <- "vrl"
-  out[out == 5] <- "vrt"
-  return(out)
-}
+x.val <- model.matrix(Kingdom ~ . -1, df.val) %>% scale()
+y.val <- to_categorical(as.integer(df.val$Kingdom) - 1, 6)
 
 # Define function to stop early if there are no improvements and save computation time
 early_stop <- callback_early_stopping(patience = 15, restore_best_weights = TRUE)
@@ -53,8 +43,8 @@ nn.1.layer.10.units <- keras_model_sequential() %>%
 # Compile network
 nn.1.layer.10.units %>% compile(loss = "categorical_crossentropy", optimizer = "adam", metrics = "accuracy")
 # Fit network
-nn.1.layer.10.units %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.test, y.test), callbacks = list(early_stop))
-# val_loss: 0.2662 - val_accuracy: 0.9165
+nn.1.layer.10.units %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.val, y.val), callbacks = list(early_stop))
+# val_loss: 0.2759 - val_accuracy: 0.9152
 ```
 
 ```{r, single-layer-20-nodes}
@@ -65,8 +55,8 @@ nn.1.layer.20.units <- keras_model_sequential() %>%
 # Compile network
 nn.1.layer.20.units %>% compile(loss = "categorical_crossentropy", optimizer = "adam", metrics = "accuracy")
 # Fit network
-nn.1.layer.20.units %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.test, y.test), callbacks = list(early_stop))
-# val_loss: 0.2251 - val_accuracy: 0.9344
+nn.1.layer.20.units %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.val, y.val), callbacks = list(early_stop))
+# val_loss: 0.2251 - val_accuracy: 0.9383
 ```
 
 ```{r, single-layer-30-nodes}
@@ -77,8 +67,8 @@ nn.1.layer.30.units <- keras_model_sequential() %>%
 # Compile network
 nn.1.layer.30.units %>% compile(loss = "categorical_crossentropy", optimizer = "adam", metrics = "accuracy")
 # Fit network
-nn.1.layer.30.units %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.test, y.test), callbacks = list(early_stop))
-# val_loss: 0.2137 - val_accuracy: 0.9324
+nn.1.layer.30.units %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.val, y.val), callbacks = list(early_stop))
+# val_loss: 0.2103 - val_accuracy: 0.9375
 ```
 
 ```{r, single-layer-40-nodes}
@@ -89,10 +79,8 @@ nn.1.layer.40.units <- keras_model_sequential() %>%
 # Compile network
 nn.1.layer.40.units %>% compile(loss = "categorical_crossentropy", optimizer = "adam", metrics = "accuracy")
 # Fit network
-nn.1.layer.40.units %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.test, y.test), callbacks = list(early_stop))
-# val_loss: 0.2070 - val_accuracy: 0.9422
-# Overall best neural network, saving for later analysis
-save_model_tf(nn.1.layer.40.units, "Fits/BestNeuralNetworkModel")
+nn.1.layer.40.units %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.val, y.val), callbacks = list(early_stop))
+# val_loss: 0.2024 - val_accuracy: 0.9418
 ```
 
 ```{r, single-layer-50-nodes}
@@ -103,37 +91,11 @@ nn.1.layer.50.units <- keras_model_sequential() %>%
 # Compile network
 nn.1.layer.50.units %>% compile(loss = "categorical_crossentropy", optimizer = "adam", metrics = "accuracy")
 # Fit network
-nn.1.layer.50.units %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.test, y.test), callbacks = list(early_stop))
-# val_loss: 0.1889 - val_accuracy: 0.9442
+nn.1.layer.50.units %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.val, y.val), callbacks = list(early_stop))
+# val_loss: 0.1822 - val_accuracy: 0.9514
 ```
 
 ## Single-Layer Neural Networks with Dropout
-
-```{r, single-layer-10-dropout-0.4}
-# Define model
-nn.1.layer.10.dropout.4 <- keras_model_sequential() %>%
-  layer_dense(units = 10, activation = "relu", input_shape = 64) %>%
-  layer_dropout(rate = 0.4) %>%
-  layer_dense(units = 6, activation = "softmax")
-# Compile network
-nn.1.layer.10.dropout.4 %>% compile(loss = "categorical_crossentropy", optimizer = "adam", metrics = "accuracy")
-# Fit network
-nn.1.layer.10.dropout.4 %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.test, y.test), callbacks = list(early_stop))
-# 0.8748
-```
-
-```{r, single-layer-10-dropout-0.5}
-# Define model
-nn.1.layer.10.dropout.5 <- keras_model_sequential() %>%
-  layer_dense(units = 10, activation = "relu", input_shape = 64) %>%
-  layer_dropout(rate = 0.5) %>%
-  layer_dense(units = 6, activation = "softmax")
-# Compile network
-nn.1.layer.10.dropout.5 %>% compile(loss = "categorical_crossentropy", optimizer = "adam", metrics = "accuracy")
-# Fit network
-nn.1.layer.10.dropout.5 %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.test, y.test), callbacks = list(early_stop))
-# 0.8609
-```
 
 ```{r, single-layer-10-dropout-0.2}
 # Define model
@@ -144,8 +106,8 @@ nn.1.layer.10.dropout.2 <- keras_model_sequential() %>%
 # Compile network
 nn.1.layer.10.dropout.2 %>% compile(loss = "categorical_crossentropy", optimizer = "adam", metrics = "accuracy")
 # Fit network
-nn.1.layer.10.dropout.2 %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.test, y.test), callbacks = list(early_stop))
-# 0.8979
+nn.1.layer.10.dropout.2 %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.val, y.val), callbacks = list(early_stop))
+# val_loss: 0.3352 - val_accuracy: 0.8966
 ```
 
 ```{r, single-layer-10-dropout-0.1}
@@ -157,11 +119,11 @@ nn.1.layer.10.dropout.1 <- keras_model_sequential() %>%
 # Compile network
 nn.1.layer.10.dropout.1 %>% compile(loss = "categorical_crossentropy", optimizer = "adam", metrics = "accuracy")
 # Fit network
-nn.1.layer.10.dropout.1 %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.test, y.test), callbacks = list(early_stop))
-# 0.9051
+nn.1.layer.10.dropout.1 %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.val, y.val), callbacks = list(early_stop))
+# val_loss: 0.3239 - val_accuracy: 0.8970
 ```
 
-Overfitting does not seem to be a concern with this data in a single-layer NN because adding a dropout layer worsens the validation accuracy.
+Overfitting does not seem to be a major concern with this data in a single-layer NN because adding a dropout layer worsens accuracy and loss.
 
 ## Two-Layer Neural Networks
 
@@ -174,9 +136,8 @@ nn.2.layers.40.10 <- keras_model_sequential() %>%
 # Compile network
 nn.2.layers.40.10 %>% compile(loss = "categorical_crossentropy", optimizer = "adam", metrics = "accuracy")
 # Fit network
-nn.2.layers.40.10 %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.test, y.test), callbacks = list(early_stop))
-# val_loss: 0.2102 - val_accuracy: 0.9409
-  # Slightly worse than single layer with 40 units but much quicker
+nn.2.layers.40.10 %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.val, y.val), callbacks = list(early_stop))
+# val_loss: 0.2334 - val_accuracy: 0.9429
 ```
 
 ```{r, two-layer-40-20}
@@ -188,59 +149,47 @@ nn.2.layers.40.20 <- keras_model_sequential() %>%
 # Compile network
 nn.2.layers.40.20 %>% compile(loss = "categorical_crossentropy", optimizer = "adam", metrics = "accuracy")
 # Fit network
-nn.2.layers.40.20 %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.test, y.test), callbacks = list(early_stop))
-# val_loss: 0.2123 - val_accuracy: 0.9404
+nn.2.layers.40.20 %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.val, y.val), callbacks = list(early_stop))
+# val_loss: 0.2272 - val_accuracy: 0.9395
 ```
 
-```{r, two-layer-10-10}
+```{r, two-layer-50-10}
 # Define model
-nn.2.layers.10.10 <- keras_model_sequential() %>%
-  layer_dense(units = 10, activation = "relu", input_shape = 64) %>%
-  layer_dense(units = 10, activation = "relu", input_shape = 10) %>%
+nn.2.layers.50.10 <- keras_model_sequential() %>%
+  layer_dense(units = 50, activation = "relu", input_shape = 64) %>%
+  layer_dense(units = 10, activation = "relu", input_shape = 50) %>%
   layer_dense(units = 6, activation = "softmax")
 # Compile network
-nn.2.layers.10.10 %>% compile(loss = "categorical_crossentropy", optimizer = "adam", metrics = "accuracy")
+nn.2.layers.50.10 %>% compile(loss = "categorical_crossentropy", optimizer = "adam", metrics = "accuracy")
 # Fit network
-nn.2.layers.10.10 %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.test, y.test), callbacks = list(early_stop))
-# 0.9177
+nn.2.layers.50.10 %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.val, y.val), callbacks = list(early_stop))
+# val_loss: 0.2053 - val_accuracy: 0.9460
 ```
 
-```{r, two-layer-20-10}
+```{r, two-layer-50-20}
 # Define model
-nn.2.layers.20.10 <- keras_model_sequential() %>%
-  layer_dense(units = 20, activation = "relu", input_shape = 64) %>%
-  layer_dense(units = 10, activation = "relu", input_shape = 20) %>%
+nn.2.layers.50.20 <- keras_model_sequential() %>%
+  layer_dense(units = 50, activation = "relu", input_shape = 64) %>%
+  layer_dense(units = 20, activation = "relu", input_shape = 50) %>%
   layer_dense(units = 6, activation = "softmax")
 # Compile network
-nn.2.layers.20.10 %>% compile(loss = "categorical_crossentropy", optimizer = "adam", metrics = "accuracy")
+nn.2.layers.50.20 %>% compile(loss = "categorical_crossentropy", optimizer = "adam", metrics = "accuracy")
 # Fit network
-nn.2.layers.20.10 %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.test, y.test), callbacks = list(early_stop))
-# 0.9283
+nn.2.layers.50.20 %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.val, y.val), callbacks = list(early_stop))
+# val_loss: 0.2369 - val_accuracy: 0.9406
 ```
 
-```{r, two-layer-30-15}
-# Define model
-nn.2.layers.30.15 <- keras_model_sequential() %>%
-  layer_dense(units = 30, activation = "relu", input_shape = 64) %>%
-  layer_dense(units = 15, activation = "relu", input_shape = 30) %>%
-  layer_dense(units = 6, activation = "softmax")
-# Compile network
-nn.2.layers.30.15 %>% compile(loss = "categorical_crossentropy", optimizer = "adam", metrics = "accuracy")
-# Fit network
-nn.2.layers.30.15 %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.test, y.test), callbacks = list(early_stop))
-# 0.9339
-```
+## Fitting Final Neural Network
 
-```{r, two-layer-30-dropout-0.1-15}
-# Define model
-nn.2.layers.30.dropout.1.15 <- keras_model_sequential() %>%
-  layer_dense(units = 30, activation = "relu", input_shape = 64) %>%
-  layer_dropout(rate = 0.1) %>%
-  layer_dense(units = 15, activation = "relu") %>%
+```{r, fit-NN}
+df <- rbind(df.train, df.val)
+# The best performing network for validation loss and accuracy had a single hidden layer with 50 units
+nn.final <- keras_model_sequential() %>%
+  layer_dense(units = 50, activation = "relu", input_shape = 64) %>%
   layer_dense(units = 6, activation = "softmax")
-# Compile network
-nn.2.layers.30.dropout.1.15 %>% compile(loss = "categorical_crossentropy", optimizer = "adam", metrics = "accuracy")
-# Fit network
-nn.2.layers.30.dropout.1.15 %>% fit(x.train, y.train, epochs = 200, batch_size = 64, validation_data = list(x.test, y.test), callbacks = list(early_stop))
-# 0.9332
+# Compile
+nn.final %>% compile(loss = "categorical_crossentropy", optimizer = "adam", metrics = "accuracy")
+# Fit
+nn.final %>% fit(x.train, y.train, epochs = 75, batch_size = 64)
+save_model_tf(nn.final, "Fits/NeuralNetwork")
 ```
