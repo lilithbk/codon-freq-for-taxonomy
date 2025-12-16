@@ -45,7 +45,7 @@ ggplot(codon.freq, aes(Codon, Frequency)) +
   theme(axis.text.x = element_blank(),
         axis.ticks.x = element_blank())
 # Save plot
-ggsave("Plots/MeanCodonFreq.png")
+ggsave("Plots/MeanCodonFreq.pdf")
 ```
 
 Further inspecting codon frequencies from previous plot.
@@ -72,7 +72,7 @@ ggplot(df, aes(reorder(Kingdom, Kingdom, function(x) + length(x)))) +
   xlab("Category") +
   ylab("Count") +
   theme_bw()
-ggsave("Plots/TaxaBarChart.png")
+ggsave("Plots/TaxaBarChart.pdf")
 ```
 
 #### Removing Plasmids
@@ -110,7 +110,7 @@ ggplot(pca.10, aes(PC1, PC2, color = Kingdom)) +
   geom_point(alpha = 0.7) +
   theme_bw()
 # Save plot of PC1 vs. PC2
-ggsave("Plots/PCA10Classes.png")
+ggsave("Plots/PCA10Classes.pdf")
 
 # Consolidate non-mutually exclusive classes and re-plot
 true_kingdom <- pca.10$Kingdom %>%
@@ -118,7 +118,7 @@ true_kingdom <- pca.10$Kingdom %>%
 ggplot(pca.10, aes(PC1, PC2, color = true_kingdom)) +
   geom_point(alpha = 0.7) +
   theme_bw()
-ggsave("Plots/PCA6Classes.png")
+ggsave("Plots/PCA6Classes.pdf")
 ```
 
 There still seems to be poor separation, so will further inspect the non-mutually exclusive classes.
@@ -141,7 +141,7 @@ ggplot(pca.vrt, aes(PC1, PC2, color = Kingdom)) +
   geom_point(alpha = 0.7) +
   theme_bw()
 # Save plot of PC1 vs. PC2
-ggsave("Plots/PCAVrt.png")
+ggsave("Plots/PCAVrt.pdf")
 ```
 
 #### Combining Mammals, Primates, and Rodents with Vertebrates
@@ -175,7 +175,7 @@ ggplot(pca.vrl.bct, aes(PC1, PC2, color = Kingdom)) +
   geom_point(alpha = 0.7) +
   theme_bw()
 # Save plot of PC1 vs. PC2
-ggsave("Plots/PCAVrlBct.png")
+ggsave("Plots/PCAVrlBct.pdf")
 ```
 
 #### Removing Bacteriophages
@@ -195,7 +195,7 @@ df <- df %>%
 ```{r, save-data}
 # Now, there are only 6 classes
 df %>% count(Kingdom) %>% arrange(n)
-
+dim(df)
 # Creating new CSV with consolidated Kingdom
 write_csv(df, "Data/consolidated_codons.csv")
 ```
@@ -213,6 +213,7 @@ set.seed(27)
 # First, set aside test set
 test_id <- sample(1:nrow(df), nrow(df) * 0.2)
 df.test <- df[test_id, ]
+dim(df.test)
 # Update df to avoid overlap between the three sets
 df <- df[-test_id, ]
 
@@ -220,8 +221,10 @@ df <- df[-test_id, ]
 ## 20% less data in df now, so need 25% of what is remaining to be 20% of the overall observations
 val_id <- sample(1:nrow(df), nrow(df) * 0.25)
 df.val <- df[val_id, ]
+dim(df.val)
 ## Remaining observations are for training
 df.train <- df[-val_id, ]
+dim(df.train)
 
 # Save each data frame in its own CSV
 write_csv(df.test, "Data/set_splits/test_codons.csv")

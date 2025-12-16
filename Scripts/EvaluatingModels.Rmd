@@ -76,9 +76,9 @@ class.nn <- k_argmax(prob.nn) %>% as.numeric() %>% int_to_char() %>% as.factor()
 # Naive Bayes
 cm.nb <- confusionMatrix(class.nb, df.test$Kingdom)
 # Random forest
-cm.rf <- confusionMatrix(class.rf, df.test$Kingdom, mode = "everything")
+cm.rf <- confusionMatrix(class.rf, df.test$Kingdom)
 # Neural network
-cm.nn <- confusionMatrix(class.nn, df.test$Kingdom, mode = "everything")
+cm.nn <- confusionMatrix(class.nn, df.test$Kingdom)
 ```
 
 ```{r, conf-mtx-plotting-func}
@@ -108,11 +108,11 @@ plot_conf_matrix <- function(conf_mtx, plot_name = NULL){
 
 ```{r, plot-conf-mtx}
 # Naive Bayes
-plot_conf_matrix(cm.nb, "Plots/NaiveBayesConfMatrix.png")
+plot_conf_matrix(cm.nb, "Plots/NaiveBayesConfMatrix.pdf")
 # Random forest
-plot_conf_matrix(cm.rf, "Plots/RandomForestConfMatrix.png")
+plot_conf_matrix(cm.rf, "Plots/RandomForestConfMatrix.pdf")
 # Neural network
-plot_conf_matrix(cm.nn, "Plots/NeuralNetworkConfMatrix.png")
+plot_conf_matrix(cm.nn, "Plots/NeuralNetworkConfMatrix.pdf")
 ```
 
 ## Plot ROC Curves
@@ -152,7 +152,7 @@ plot_roc_df %>%
   ylab("True Positive Rate") +
   xlab("False Positive Rate") +
   theme_bw()
-ggsave("Plots/NaiveBayesROCCurve.png")
+ggsave("Plots/NaiveBayesROCCurve.pdf")
 
 # Repeat for random forest
 plot_roc_df %>%
@@ -164,7 +164,7 @@ plot_roc_df %>%
   ylab("True Positive Rate") +
   xlab("False Positive Rate") +
   theme_bw()
-ggsave("Plots/RandomForestROCCurve.png")
+ggsave("Plots/RandomForestROCCurve.pdf")
 
 # And again for neural network
 plot_roc_df %>%
@@ -176,7 +176,7 @@ plot_roc_df %>%
   ylab("True Positive Rate") +
   xlab("False Positive Rate") +
   theme_bw()
-ggsave("Plots/NeuralNetworkROCCurve.png")
+ggsave("Plots/NeuralNetworkROCCurve.pdf")
 ```
 
 ## Extracting Evaluation Metrics
@@ -227,30 +227,25 @@ xtable(overall_df, digits = 3)
 ```{r, per-class-metrics}
 # Function to extract per-class performance metrics
 per_class_metrics <- function(true, pred, cm, roc_df, method){
-  # Per-class accuracy and AUC
+  # Per-class AUC
   classes <- levels(true)
-  total <- length(true)
-  class_acc <- c()
   class_auc <- c()
-  for(i in 1:length(classes)){
-    class <- classes[i]
-    TP <- sum(true == class & pred == class)
-    TN <- sum(true != class & pred != class)
-    class_acc <- c(class_acc, round((TP+TN)/total, 3))
-    # AUC  
+  for(class in classes){
     class_auc <- c(class_auc, round(roc_df %>%
       filter(Method == method) %>%
       filter(Group == class) %>%
       distinct(AUC) %>%
       pull(), 3))
   }
+  # Balanced accuracy
+  bal_acc <- round(unname(cm$byClass[, "Balanced Accuracy"]), 3)
   # Per-class precision
   class_prec <- round(unname(cm$byClass[, "Precision"]), 3)
   # Per-class recall
   class_rec <- round(unname(cm$byClass[, "Recall"]), 3)
   # F1 scores
   f1 <- round(unname(cm$byClass[, "F1"]), 3)
-  return(list(Accuracy = class_acc, Precision = class_prec, Recall = class_rec, "F1 Score" = f1, AUC = class_auc))
+  return(list(Class = classes, "Balanced Accuracy" = bal_acc, Precision = class_prec, Recall = class_rec, "F1 Score" = f1, AUC = class_auc))
 }
 
 # Make table for naive Bayes
@@ -264,4 +259,12 @@ xtable(rf_df, digits = 3)
 # Make table for neural network
 nn_df <- as_tibble(per_class_metrics(y.test, class.nn, cm.nn, plot_roc_df, "NN"))
 xtable(nn_df, digits = 3)
+```
+
+## Analyze Variable Importance
+
+```{r, plot-rf-var-imp}
+png("Plots/RandomForestVarImp.png")
+varImpPlot(fit.rf)
+dev.off()
 ```
